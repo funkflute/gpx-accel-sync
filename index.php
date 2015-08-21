@@ -23,18 +23,24 @@ $output = new SimpleXMLElement("<gpx></gpx>");
 $output->addAttribute('version', 1.1);
 $output->addAttribute('xmlns', 'http://www.topografix.com/GPX/1/1');
 $output->addAttribute('xsi:schemaLocation', 'http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd', 'http://www.w3.org/2001/XMLSchema-instance');
+$output->addAttribute('creator', 'gpx-accel-sync');
 // copy over attribtues
-$output->addChild('time', $gpx->time);
+$meta = $output->addChild('metadata');
+$meta->addChild('time', $gpx->time);
 $trk = $output->addChild('trk');
 $trk->addChild('name', $gpx->trk->name);
-$trk->addChild('trkseg');
-
-var_dump($output->asXml());
-exit;
-
+$trkseg = $trk->addChild('trkseg');
 
 // loop through each track
 foreach($gpx->trk->trkseg->trkpt as $track) {
+	// add track point
+	$trkpt = $trkseg->addChild('trkpt');
+	// copy over elevation, time and coords
+	$trkpt->addChild('ele', $track->ele);
+	$trkpt->addChild('time', $track->time);
+	$trkpt->addAttribute('lat', $track['lat']);
+	$trkpt->addAttribute('lon', $track['lon']);
+
 	// convert time to timestamp
 	$gps_timestamp = Carbon::parse($track->time);
 	$gps_timestamp->setTimezone('America/New_York');
@@ -43,6 +49,7 @@ foreach($gpx->trk->trkseg->trkpt as $track) {
 	foreach ($accel as $row) {
 		// get accel time
 		$accel_timestamp = Carbon::parse($row['loggingTime']);
+
 		// if accel time is before gpx time, delete accel time,
 		if ($gps_timestamp->diffInSeconds($accel_timestamp, false) < 0) {
 			array_shift($accel);
@@ -53,12 +60,13 @@ foreach($gpx->trk->trkseg->trkpt as $track) {
 		// if same second
 		} elseif($gps_timestamp->diffInSeconds($accel_timestamp, false) == 0) {
 			// if no accel extension
-			if(!$track->extensions) {
-				$extension = $track->addChild('extensions');
+			if(!$trkpt->extensions) {
+				$extensions = $trkpt->addChild('extensions');
 			}
-			if(!$track->extensions->{'acc:AccelerationExtension'}) {
-				$accel_ext = $extension->addChild('acc:AccelerationExtension', null, 'http://www.garmin.com/xmlschemas/AccelerationExtension/v1');
+			if(!count($trkpt->extensions->children('http://www.garmin.com/xmlschemas/AccelerationExtension/v1'))) {
+				$trkpt->extensions->addChild('acc:AccelerationExtension', null, 'http://www.garmin.com/xmlschemas/AccelerationExtension/v1');
 			}
+			$accel_ext = $trkpt->extensions->children('http://www.garmin.com/xmlschemas/AccelerationExtension/v1');
 			// <acc:accel offset="64" x="0.1" y="0.3" z="-0.8" />
 			$accel_data = $accel_ext->addChild('acc:accel');
 			// ms offset
@@ -77,4 +85,4 @@ foreach($gpx->trk->trkseg->trkpt as $track) {
 }
 
 //save to file
-file_put_contents($argv[3], $gpx->asXML());
+file_put_contents($argv[3], $output->asXML());
